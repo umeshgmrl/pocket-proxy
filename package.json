@@ -1,0 +1,20 @@
+{
+  "name": "pocket-proxy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local macOS HTTP/HTTPS interceptor and mock editor",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --experimental-require-module src/main.js",
+    "dev": "node --experimental-require-module src/main.js --browser",
+    "server": "node --experimental-require-module src/main.js --headless",
+    "build:webview": "node scripts/build-webview.js",
+    "test": "node --experimental-require-module --test --test-concurrency=1 test/*.test.js"
+  },
+  "dependencies": {
+    "mockttp": "4.6.3"
+  }
+}
