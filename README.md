@@ -102,7 +102,7 @@ Run the app as your normal user, without `sudo`. System changes use macOS author
 
 ### 2. Set up HTTPS
 
-In **Connection setup**:
+The global **Start interception** button guides you through HTTPS setup automatically. You can also configure HTTPS separately in **Connection setup**:
 
 1. Click **Set up HTTPS…**.
 2. Approve the macOS certificate prompt when it appears.
@@ -110,7 +110,7 @@ In **Connection setup**:
 
 Setup imports the app's exact public certificate into your **login** keychain and requests SSL trust. Your private key stays in the app's data folder. Already-trusted certificates skip approval. Each new installation generates its own certificate; existing certificates are preserved on updates.
 
-If macOS blocks native approval, expand the **Keychain fallback** and click its button. The app imports or locates the exact certificate and displays its name and fingerprint. In Keychain Access, double-click that certificate, expand **Trust**, set **Secure Sockets Layer (SSL)** to **Always Trust**, then close the window and authorize the change. Return to Pocket Proxy and click **Verify HTTPS**.
+If macOS blocks native approval, expand the **Keychain fallback** and click its button. The app imports or locates the exact certificate and displays its name and fingerprint. In Keychain Access, double-click that certificate, expand **Trust**, set **Secure Sockets Layer (SSL)** to **Always Trust**, then close the window and authorize the change. Return to Pocket Proxy and click **Verify again**.
 
 The check stays on your Mac and does not appear in Live traffic. It verifies macOS trust; applications with separate certificate stores or certificate pinning may still need their own configuration.
 
@@ -119,7 +119,7 @@ The check stays on your Mac and does not appear in Live traffic. It verifies mac
 Back in **Connection setup**:
 
 1. Select the network service you use, usually **Wi-Fi** or Ethernet.
-2. Click **Start interception…** and authorize macOS if prompted.
+2. Click the global **Start interception** button at the top and authorize macOS if prompted. It starts the local proxy, checks HTTPS (requesting certificate approval if needed), and enables routing.
 3. Confirm that the top bar says **Mac proxy enabled**.
 
 Starting the app opens its local listener; system routing remains off until you enable it. After certificate setup, you can also enable routing on launch with:
@@ -235,7 +235,7 @@ Both listeners bind to `127.0.0.1`. Ports must be different and between 1024 and
 
 ## Stopping and recovery
 
-**Pause capture**, quitting the native window, or pressing **Ctrl+C** restores saved Mac proxy settings before closing the listener. Starting capture again only starts the listener; re-enable the Mac proxy when you want system routing again.
+**Stop interception**, quitting the native window, or pressing **Ctrl+C** restores saved Mac proxy settings before closing the listener. The global **Start interception** button starts the listener and enables routing together. **Connection setup → Advanced → Local proxy only** is available for explicitly configured clients; in that mode the global button controls only the local proxy.
 
 A separate watchdog attempts restoration if the backend crashes or is killed. A journal also survives restarts, and restoration may require macOS authorization. Recovery is best effort: power loss, cancelled authorization, removed network services, or terminating both processes can require manual recovery.
 

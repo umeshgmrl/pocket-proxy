@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 let state, rules = [], requests = [], selectedId, selectedRequest, detailTab = 'response', editingId = null, activePage = 'traffic';
-let events, trafficTimer, busy = false, setupWork = '', lastSetupCheck = 0;
+let events, trafficTimer, busy = false, setupWork = '', lastSetupCheck = 0, interceptionWork = '';
+let localOnly = false;
 const pageCopy = {
   traffic: ['Live traffic', 'See what’s going over the wire. Change what comes back.'],
   rules: ['Mock rules', 'Build the response you need, without touching your backend.'],
@@ -45,14 +46,17 @@ function page(name) {
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function renderState() {
   if (activeTlsNotice) $('notice-text').textContent = tlsNoticeMessage(activeTlsNotice);
-  $('capture-state').replaceChildren(el('i'), document.createTextNode(state.running ? 'Capturing' : 'Paused'));
-  $('capture-state').classList.toggle('on', state.running);
-  $('capture-toggle').textContent = state.running ? 'Pause capture' : 'Start capture';
+  const active = state.systemProxy || (localOnly && state.running);
+  $('capture-state').replaceChildren(el('i'), document.createTextNode(interceptionWork || (state.systemProxy ? 'Intercepting' : localOnly && state.running ? 'Local proxy only' : 'Not intercepting')));
+  $('capture-state').classList.toggle('on', active && !interceptionWork);
+  $('capture-toggle').textContent = interceptionWork || (active ? 'Stop interception' : 'Start interception');
+  $('capture-toggle').disabled = busy;
+  $('local-only').checked = localOnly;
+  $('local-only').disabled = active || busy;
   $('proxy-dot').classList.toggle('green', state.running);
   $('proxy-address').textContent = `127.0.0.1:${state.proxyPort}`;
   $('system-label').textContent = state.systemProxy ? 'Mac proxy enabled' : 'Mac proxy off';
   $('quick-setup').textContent = state.systemProxy ? 'Manage ↗' : 'Configure ↗';
-  $('system-toggle').textContent = state.systemProxy ? 'Stop interception' : 'Start interception…';
   $('cert-path').textContent = state.certPath;
   const chosen = [...$('services').querySelectorAll('input:checked')].map(input => input.value);
   const previouslyRendered = $('services').dataset.loaded === 'true';
@@ -60,11 +64,10 @@ function renderState() {
   for (const service of state.services) {
     const label = el('label', 'checkbox-label'); const input = el('input'); input.type = 'checkbox'; input.value = service;
     input.checked = state.systemProxy ? state.selectedServices.includes(service) : previouslyRendered ? chosen.includes(service) : service === 'Wi-Fi' || /Ethernet/.test(service);
-    input.disabled = state.systemProxy; label.append(input, document.createTextNode(service)); $('services').append(label);
+    input.disabled = state.systemProxy || busy; label.append(input, document.createTextNode(service)); $('services').append(label);
   }
   $('services').dataset.loaded = 'true';
   if (!state.services.length) $('services').append(el('p', 'fine-print', state.systemError || 'No network services found. Use manual proxy configuration.'));
-  $('system-toggle').disabled = !state.systemProxy && (!state.services.length || state.httpsSetup?.phase !== 'ready');
   renderSetup();
   const quote = text => `'${text.replaceAll("'", "'\\''")}'`;
   $('curl-example').textContent = `curl --noproxy '' --proxy http://127.0.0.1:${state.proxyPort} \\\n  --cacert ${quote(state.certPath)} \\\n  https://example.com`;
@@ -81,17 +84,19 @@ function renderSetup() {
   $('network-step').classList.toggle('verified', state.systemProxy);
   $('https-title').textContent = ready ? 'HTTPS is ready' : 'Set up HTTPS';
   $('https-message').textContent = setupWork === 'approval' ? 'Approve the macOS prompt. We’ll verify HTTPS automatically afterward.' : setupWork ? 'Testing HTTPS through the local proxy…' : setup.message;
-  $('trust-cert').textContent = ready ? 'HTTPS verified ✓' : 'Set up HTTPS…';
-  $('trust-cert').disabled = ready || !state.running || !!setupWork;
-  $('verify-https').disabled = !state.running || !!setupWork;
-  $('network-message').textContent = state.systemProxy ? 'Selected network services are routed through Pocket Proxy.' : ready ? 'Select the network you use, then start interception.' : 'Finish HTTPS setup first. Then you can start interception.';
-  $('setup-progress').textContent = setupWork ? $('https-message').textContent : !state.running ? 'Capture is paused. Start capture to continue setup.' : ready && state.systemProxy ? 'Ready — HTTPS is verified and your Mac proxy is enabled.' : ready ? 'HTTPS verified. Next: select your network and start interception.' : 'Step 1 of 2 — approve this app’s HTTPS certificate.';
+  $('trust-cert').hidden = ready;
+  $('trust-cert').textContent = 'Set up HTTPS…';
+  $('trust-cert').disabled = ready || busy || !!setupWork;
+  $('verify-https').disabled = busy || !!setupWork;
+  $('network-message').textContent = state.systemProxy ? 'Selected network services are routed through Pocket Proxy.' : ready ? 'Select the network you use. Start interception with the button at the top.' : 'Select your network. Start interception will guide you through HTTPS approval.';
+  $('setup-progress').textContent = setupWork ? $('https-message').textContent : localOnly ? 'Local proxy mode: configure your client with the proxy address and certificate below.' : ready && state.systemProxy ? 'Ready — HTTPS is verified and your Mac proxy is enabled.' : ready ? 'HTTPS verified. Next: select your network and start interception.' : 'Select your network, then click Start interception above. We’ll guide you through HTTPS setup.';
   if (setup.fallback) $('certificate-fallback').open = true;
 }
 async function checkHttps(mode = 'verify') {
-  if (busy || !state?.running) return;
+  if (busy || !state) return;
   const button = mode === 'https' ? $('trust-cert') : $('verify-https');
   await action(button, async () => {
+    if (!state.running) { await api('capture', { enabled: true }); await refreshState(); }
     setupWork = mode === 'https' ? 'approval' : 'checking'; renderSetup();
     try {
       state.httpsSetup = await api(`setup/${mode}`, {});
@@ -127,7 +132,7 @@ function renderTraffic() {
   $('traffic-empty').hidden = !!visible.length;
   if (!visible.length) {
     $('traffic-empty').querySelector('h2').textContent = requests.length ? 'No matching requests' : 'Ready when you are';
-    $('traffic-empty').querySelector('p').textContent = requests.length ? 'Try a different filter or clear your search.' : 'Enable your Mac proxy in Connection setup, then make a request from your browser or app.';
+    $('traffic-empty').querySelector('p').textContent = requests.length ? 'Try a different filter or clear your search.' : 'Click Start interception above, then make a request from your browser or app.';
   }
   const nodes = visible.map(row => {
     const button = el('button', `request-row${row.id === selectedId ? ' selected' : ''}`); button.setAttribute('aria-label', `${row.method} ${row.url}`);
@@ -192,13 +197,31 @@ document.querySelectorAll('[data-page]').forEach(button => button.onclick = () =
 for (const id of ['quick-setup', 'empty-setup']) $(id).onclick = () => page('setup');
 $('dismiss-notice').onclick = () => { $('notice').hidden = true; };
 $('search').oninput = renderTraffic; $('traffic-filter').onchange = renderTraffic;
-$('capture-toggle').onclick = async () => { await action($('capture-toggle'), () => api('capture', { enabled: !state.running })); if (state.running) await checkHttps(); };
+$('capture-toggle').onclick = () => action($('capture-toggle'), async () => {
+  const active = state.systemProxy || (localOnly && state.running);
+  const services = [...$('services').querySelectorAll('input:checked')].map(input => input.value);
+  if (!active && !localOnly && !services.length) { page('setup'); notice('Select at least one network before starting interception.'); return; }
+  interceptionWork = active ? 'Stopping…' : 'Starting…'; renderState();
+  try {
+    if (active) await api('capture', { enabled: false });
+    else {
+      await api('capture', { enabled: true });
+      if (!localOnly) {
+        page('setup'); setupWork = 'approval'; renderSetup();
+        try { state.httpsSetup = await api('setup/https', {}); }
+        finally { setupWork = ''; }
+        if (state.httpsSetup.phase !== 'ready') { renderSetup(); return; }
+        await api('system-proxy', { enabled: true, services });
+      }
+    }
+  } finally { interceptionWork = ''; await refreshState(); }
+});
+$('local-only').onchange = () => { localOnly = $('local-only').checked; renderState(); };
 $('clear-traffic').onclick = () => action($('clear-traffic'), async () => { await api('requests/clear', {}); await refreshTraffic(); });
 $('trust-cert').onclick = () => checkHttps('https');
 $('verify-https').onclick = () => checkHttps();
 $('keychain-fallback').onclick = () => action($('keychain-fallback'), async () => { const result = await api('certificate/trust', {}); $('keychain-instructions').textContent = result.message; });
-window.addEventListener('focus', () => { if (activePage === 'setup' && Date.now() - lastSetupCheck > 3000) checkHttps(); });
-$('system-toggle').onclick = () => action($('system-toggle'), async () => { await api('system-proxy', { enabled: !state.systemProxy, services: [...$('services').querySelectorAll('input:checked')].map(input => input.value) }); });
+window.addEventListener('focus', () => { if (state?.running && activePage === 'setup' && Date.now() - lastSetupCheck > 3000) checkHttps(); });
 document.querySelectorAll('[data-detail]').forEach(button => button.onclick = () => { detailTab = button.dataset.detail; document.querySelectorAll('[data-detail]').forEach(b => b.classList.toggle('active', b === button)); renderDetail(); });
 async function init() {
   const token = location.hash.slice(1);
