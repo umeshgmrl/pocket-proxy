@@ -6,7 +6,7 @@ Inspect the requests your apps make and choose what comes back. Return a custom 
 
 Pocket Proxy runs on your existing **Node.js** installation and displays its interface in a native **macOS WebView**. No account, cloud service, bundled Chromium, or subscription is required.
 
-[Setup](#setup) · [Your first mock](#your-first-mock) · [Commands](#commands) · [Troubleshooting](#troubleshooting) · [Development](#development)
+[Install the app](#install-the-app) · [Setup](#setup) · [Your first mock](#your-first-mock) · [Commands](#commands) · [Troubleshooting](#troubleshooting) · [Development](#development)
 
 ## What you can do
 
@@ -39,6 +39,23 @@ For HTTPS, Pocket Proxy uses a unique personal certificate authority (CA) to ins
 
 **Certificate trust and traffic routing are separate steps.** Trusting the certificate does not automatically enable the Mac proxy. Both must be configured for browser-based HTTPS mocking.
 
+## Install the app
+
+The lean macOS build is distributed as **Pocket Proxy.app** in a drag-to-install **DMG**. It includes the proxy dependencies and native WebView, but **does not include Node.js**.
+
+1. Install **Node.js 22 or newer** if it is not already installed.
+2. Open `Pocket-Proxy-0.1.0-arm64.dmg` and drag **Pocket Proxy** into **Applications**.
+3. Open Pocket Proxy from Applications. No terminal, npm install, or Xcode tools are needed to run this build.
+4. Complete **Connection setup**: approve HTTPS certificate trust, then enable the Mac proxy.
+
+The launcher looks for Node in its inherited PATH, Homebrew locations, nvm installations, and common version-manager locations. If Node is missing or too old, a native error dialog appears at startup. The app does not download or bundle a runtime.
+
+Installed-app data is stored in `~/Library/Application Support/Pocket Proxy`, outside the app bundle. Rules and certificates survive replacing the app during an update. It starts with fresh data unless you explicitly migrate an existing development installation.
+
+**Moving from the development version:** quit every Pocket Proxy instance first so proxy settings are restored. To reuse your existing certificate and rules, copy only `.data/ca.json`, `.data/pocket-proxy-ca.pem`, and `.data/rules.json` into the installed-app data folder, preserving their private file permissions, before first launch. Do not copy lock files or `mac-proxy.json`. Otherwise, complete trust setup for the installed app's new certificate. Personal certificates and rules are never included in the release artifact.
+
+This build targets macOS 13+ and the build machine's architecture (currently Apple Silicon / arm64). It is ad-hoc signed, not Apple-notarized; macOS may require approval in Privacy & Security when opening a downloaded copy.
+
 ## Requirements
 
 - **macOS** with a local Node.js installation, **version 22 or newer**.
@@ -61,6 +78,8 @@ xcode-select --install
 ```
 
 ## Setup
+
+If you installed the DMG, launch from Applications and continue at step 2. The commands below are for running from source.
 
 ### 1. Install and launch
 
@@ -189,7 +208,9 @@ This command uses the local proxy and its public CA directly, so it also works *
 | `npm start -- --system-proxy` | Also enable the Mac proxy on launch. |
 | `npm start -- --restore` | Restore saved proxy settings and exit; close any running instance first. |
 | `npm start -- --help` | Show launch options. |
-| `npm run build:webview` | Compile the native window if needed. |
+| `npm run build:webview` | Compile the development WebView window if needed. |
+| `npm run build:release` | Bundle dependencies, compile the launcher, and create the installable app and DMG. |
+| `npm run test:release` | Test a built release from a temporary folder without project dependencies. |
 | `npm test` | Run automated tests without modifying real proxy or certificate-trust settings. |
 
 Closing a browser tab does not stop the server. Use **Ctrl+C** in its terminal. Closing the native window stops the app.
@@ -200,7 +221,8 @@ Closing a browser tab does not stop the server. Use **Ctrl+C** in its terminal. 
 | --- | --- | --- |
 | `POCKET_PROXY_PORT` | `8899` | HTTP/HTTPS proxy port. |
 | `POCKET_PROXY_UI_PORT` | `9077` | Web interface port. |
-| `POCKET_PROXY_DATA_DIR` | `.data` in the project | Certificate, rules, and restoration data. |
+| `POCKET_PROXY_DATA_DIR` | `.data` for source launches; Application Support for the installed app | Certificate, rules, and restoration data. |
+| `POCKET_PROXY_NODE` | Auto-detected | Full path to an existing Node executable for the installed app. |
 
 For example:
 
@@ -243,6 +265,8 @@ The app avoids overwriting proxy addresses changed by another app or by you. Pre
 
 ## Privacy and local data
 
+The paths below describe a source launch. In the installed app, the same files live in `~/Library/Application Support/Pocket Proxy`.
+
 | File | Contents |
 | --- | --- |
 | `.data/rules.json` | Saved mock rules. |
@@ -254,7 +278,7 @@ Request history stays in memory and retains the latest **300 requests**. Text pr
 
 The UI uses a private launch token, an HttpOnly/SameSite cookie, and origin checks for writes. Captured HTML is displayed as text. Traffic passing through the proxy can contain credentials and other private data, so use it for your own development traffic and do not share your CA private key.
 
-The `.data`, `node_modules`, and `build` directories are git-ignored. To remove certificate trust, delete **Pocket Proxy Personal CA** from its **System** or **login** keychain in Keychain Access. Stop the app and remove that trust before deleting its CA data.
+The `.data`, `node_modules`, `build`, and `dist` directories are git-ignored. To remove certificate trust, delete **Pocket Proxy Personal CA** from its **System** or **login** keychain in Keychain Access. Stop the app and remove that trust before deleting its CA data.
 
 ## Limitations
 
@@ -294,8 +318,25 @@ The npm scripts include `--experimental-require-module` for the tested Node 22.1
 
 Mockttp 4.6.3 does not expose a public bind-address option. `src/proxy.js` includes a version-specific adapter that constrains its listener before binding. The tests check the actual socket address; recheck this adapter when upgrading Mockttp.
 
-### Size
+### Building the lean release
 
-On the development Apple Silicon Mac, the native executable is approximately **80 KB**, or **84 KB** including app bundle metadata. The project with installed npm dependencies is approximately **42 MB**, excluding the existing Node runtime and system WebKit. These are local measurements, not installer-size guarantees.
+```sh
+npm ci
+npm run build:release
+npm run test:release
+```
 
-Temporary Swift compiler caches are removed after compilation. The generated `.app` is a UI helper launched by `npm start`, not a standalone distributable.
+The release build uses esbuild to bundle and minify the backend and its dependencies. It copies the web UI, retains third-party license notices, compiles the native launcher, and creates a compressed DMG with an Applications shortcut. It leaves development dependencies intact. Runtime certificates, rules, Git data, compiler caches, and Node itself are excluded.
+
+Output files:
+
+- `dist/Pocket Proxy.app` — installable application.
+- `dist/Pocket-Proxy-0.1.0-arm64.dmg` — installer for this Apple Silicon build.
+- `dist/release-size.json` — exact installed and download sizes.
+- `dist/bundle-analysis.json` — bundled module inventory for size analysis.
+
+The build fails if the application payload reaches **15 MB** (15,000,000 bytes). The initial lean build is approximately **6 MB installed** and **2.2 MB as a DMG**, compared with roughly **42 MB** of unbundled production dependencies. Node remains an external prerequisite in both comparisons. Use the generated size report for the exact current numbers.
+
+Release tests copy the app outside the repository before running its backend. They check HTTPS mocks, forwarding, compressed responses, saved rules/certificates, and pause/restart without accessing this project's `node_modules`. They also check native Node discovery with a Finder-like PATH and missing/unsupported runtime errors. No real system proxy settings or certificate trust are changed by those tests.
+
+The existing `build/Pocket Proxy.app` remains a development WebView helper; the installable product is the distinct app under **dist**.

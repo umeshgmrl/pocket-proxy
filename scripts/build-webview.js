@@ -19,4 +19,3 @@ export async function buildWebview() {
   } finally { await rm(cache, { recursive: true, force: true }); }
   return binaryPath;
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) console.log(await buildWebview());

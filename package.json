@@ -11,10 +11,15 @@
     "start": "node --experimental-require-module src/main.js",
     "dev": "node --experimental-require-module src/main.js --browser",
     "server": "node --experimental-require-module src/main.js --headless",
-    "build:webview": "node scripts/build-webview.js",
-    "test": "node --experimental-require-module --test --test-concurrency=1 test/*.test.js"
+    "build:webview": "node scripts/build-webview-cli.js",
+    "test": "node --experimental-require-module --test --test-concurrency=1 test/*.test.js",
+    "build:release": "node scripts/build-release.js",
+    "test:release": "POCKET_PROXY_RELEASE_TEST=1 node --experimental-require-module --test --test-concurrency=1 test/release.test.js"
   },
   "dependencies": {
     "mockttp": "4.6.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

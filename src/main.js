@@ -2,13 +2,15 @@ import { spawn, fork } from 'node:child_process';
 import { mkdir, open, unlink, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { createApp } from './app.js';
 import { MacProxy } from './macos.js';
 import { buildWebview } from '../scripts/build-webview.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const dataDir = path.resolve(process.env.POCKET_PROXY_DATA_DIR || path.join(root, '.data'));
 const args = new Set(process.argv.slice(2));
+const desktop = args.has('--desktop-child');
+const dataDir = path.resolve(process.env.POCKET_PROXY_DATA_DIR || (desktop ? path.join(homedir(), 'Library/Application Support/Pocket Proxy') : path.join(root, '.data')));
 if (args.has('--help')) {
   console.log('Pocket Proxy\n  npm start                  Native macOS window\n  npm run dev                Browser UI\n  npm run server             Headless server\n  npm start -- --system-proxy Enable all supported Mac network services on launch\n  npm start -- --restore      Restore saved Mac proxy settings and exit\nEnvironment: POCKET_PROXY_UI_PORT (9077), POCKET_PROXY_PORT (8899), POCKET_PROXY_DATA_DIR');
   process.exit(0);
@@ -36,11 +38,24 @@ async function shutdown() {
     await unlink(lockPath).catch(() => {});
     process.exit(0);
   } catch (error) {
+    if (desktop) console.log(`POCKET_PROXY_SHUTDOWN_FAILED ${JSON.stringify({ message: error.message })}`);
     console.error(`Could not restore Mac proxy settings: ${error.message}\nThe server is still running. Retry Ctrl+C, or use the Mac proxy switch.`);
     closing = false;
   }
 }
 process.on('SIGINT', shutdown); process.on('SIGTERM', shutdown);
+// Also restore settings if the native launcher is force-quit or crashes.
+// Normal quit still waits for the backend's graceful shutdown handshake.
+if (desktop && process.ppid > 1) {
+  const parentPid = process.ppid;
+  const monitor = setInterval(() => {
+    try { process.kill(parentPid, 0); }
+    catch (error) {
+      if (error.code === 'ESRCH') { clearInterval(monitor); shutdown(); }
+    }
+  }, 2000);
+  monitor.unref();
+}
 try {
   if (await mac.journal()) { console.log('Restoring saved Mac proxy settings…'); await mac.restore(); }
   if (args.has('--restore')) { await unlink(lockPath); process.exit(0); }
@@ -54,7 +69,8 @@ try {
   watcher.on('error', error => console.error('Recovery watcher:', error.message));
   if (args.has('--system-proxy')) await mac.enable(await mac.services(), app.engine.port);
   console.log(`\nPocket Proxy is running\nProxy: 127.0.0.1:${app.engine.port}\nOpen:  ${app.url}\nCA:    ${app.ca.certPath}\n\nUse the Mac proxy switch to capture system traffic. Ctrl+C stops and restores settings.\n`);
-  if (!args.has('--headless')) {
+  if (desktop) console.log(`POCKET_PROXY_READY ${JSON.stringify({ url: app.url })}`);
+  if (!args.has('--headless') && !desktop) {
     if (args.has('--browser') || process.platform !== 'darwin') {
       if (process.platform === 'darwin') spawn('/usr/bin/open', [app.url]);
     } else {
