@@ -1,5 +1,7 @@
 # Pocket Proxy
 
+[← Quick start and download](readme.md)
+
 **A small, local HTTP/HTTPS interceptor and API mocking tool for macOS.**
 
 Inspect the requests your apps make and choose what comes back. Return a custom JSON response, simulate a server error, or add a delay—all without changing your backend.
