@@ -70,6 +70,10 @@ releaseTest('relocated release runs without node_modules: HTTPS mocks, forwardin
   const curl = async target => (await exec('/usr/bin/curl', ['--silent', '--show-error', '--max-time', '10', '--noproxy', '', '--compressed', '--proxy', `http://127.0.0.1:${proxyPort}`, '--cacert', path.join(dataDir, 'pocket-proxy-ca.pem'), target])).stdout;
   try {
     await start();
+    const setup = await api('setup/verify', {});
+    assert.equal(setup.phase, 'needs-approval', JSON.stringify(setup));
+    assert.ok([-1200, -1202].includes(setup.errorCode), JSON.stringify(setup));
+    assert.equal((await api('requests')).length, 0, 'Verification must not pollute captured traffic');
     assert.equal((await fetch(url)).status, 200);
     assert.match(await (await fetch(`${url}/app.js`)).text(), /refreshTraffic/);
     await api('rules', { rules: [{ name: 'Release mock', method: 'GET', match: 'exact', pattern: 'https://release.pocket.test/profile', status: 200, body: '{"release":true}', headers: { 'content-type': 'application/json' }, enabled: true }] });

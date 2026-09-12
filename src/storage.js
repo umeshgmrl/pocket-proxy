@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 export async function readJson(file, fallback) {
   try { return JSON.parse(await readFile(file, 'utf8')); }
@@ -17,7 +18,7 @@ export async function ensureCA(dir) {
   let ca = await readJson(file, null);
   if (!ca) {
     const { generateCACertificate } = await import('mockttp');
-    ca = await generateCACertificate({ subject: { commonName: 'Pocket Proxy Personal CA', organizationName: 'Pocket Proxy' } });
+    ca = await generateCACertificate({ subject: { commonName: `Pocket Proxy CA - ${randomBytes(4).toString('hex').toUpperCase()}`, organizationName: 'Pocket Proxy' } });
     await writeJson(file, ca);
   }
   const certPath = path.join(dir, 'pocket-proxy-ca.pem');

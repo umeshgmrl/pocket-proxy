@@ -35,7 +35,7 @@ Pocket Proxy · 127.0.0.1:8899
       └── No rule matches ────→ Forward to the original server
 ```
 
-For HTTPS, Pocket Proxy uses a unique personal certificate authority (CA) to inspect encrypted requests routed through it. You approve certificate trust in Keychain Access.
+For HTTPS, Pocket Proxy uses a unique personal certificate authority (CA) to inspect encrypted requests routed through it. The guided setup requests macOS approval and verifies HTTPS through the running proxy.
 
 **Certificate trust and traffic routing are separate steps.** Trusting the certificate does not automatically enable the Mac proxy. Both must be configured for browser-based HTTPS mocking.
 
@@ -56,11 +56,11 @@ Installed-app data is stored in `~/Library/Application Support/Pocket Proxy`, ou
 
 This build targets macOS 13+ and the build machine's architecture (currently Apple Silicon / arm64). It is ad-hoc signed, not Apple-notarized; macOS may require approval in Privacy & Security when opening a downloaded copy.
 
-## Requirements
+## Requirements for running from source
 
 - **macOS** with a local Node.js installation, **version 22 or newer**.
 - **npm**, included with Node.js.
-- **Xcode Command Line Tools** to compile the native window on first launch. Browser mode does not require this compilation.
+- **Xcode Command Line Tools** to compile the native window on first launch. Browser mode skips the window compilation; guided HTTPS setup still compiles a small native helper. The DMG includes both helpers and needs no compiler.
 - Access to authorize macOS certificate trust and network proxy changes when prompted.
 
 Check your tools:
@@ -100,25 +100,26 @@ npm run dev
 
 Run the app as your normal user, without `sudo`. System changes use macOS authorization prompts.
 
-### 2. Trust the HTTPS certificate
+### 2. Set up HTTPS
 
-In Pocket Proxy, open **Connection setup**, then:
+In **Connection setup**:
 
-1. Click **Open Keychain Access…**.
-2. If prompted to import the certificate, choose the **login** keychain. If it is already installed, select its existing **System** or **login** keychain.
-3. Search for **Pocket Proxy Personal CA** and double-click it.
-4. Expand **Trust**.
-5. Set **Secure Sockets Layer (SSL)** to **Always Trust**.
-6. Close the certificate window and authorize macOS to save the change.
+1. Click **Set up HTTPS…**.
+2. Approve the macOS certificate prompt when it appears.
+3. Wait for **HTTPS verified**. Pocket Proxy checks a local HTTPS response using macOS certificate trust before reporting success.
 
-Importing or opening the certificate alone does not grant trust. This setup is needed once per generated certificate. The private key stays in `.data/ca.json`; only the public certificate is opened in Keychain Access.
+Setup imports the app's exact public certificate into your **login** keychain and requests SSL trust. Your private key stays in the app's data folder. Already-trusted certificates skip approval. Each new installation generates its own certificate; existing certificates are preserved on updates.
+
+If macOS blocks native approval, expand the **Keychain fallback** and click its button. The app imports or locates the exact certificate and displays its name and fingerprint. In Keychain Access, double-click that certificate, expand **Trust**, set **Secure Sockets Layer (SSL)** to **Always Trust**, then close the window and authorize the change. Return to Pocket Proxy and click **Verify HTTPS**.
+
+The check stays on your Mac and does not appear in Live traffic. It verifies macOS trust; applications with separate certificate stores or certificate pinning may still need their own configuration.
 
 ### 3. Enable the Mac proxy
 
 Back in **Connection setup**:
 
 1. Select the network service you use, usually **Wi-Fi** or Ethernet.
-2. Click **Enable Mac proxy…** and authorize macOS if prompted.
+2. Click **Start interception…** and authorize macOS if prompted.
 3. Confirm that the top bar says **Mac proxy enabled**.
 
 Starting the app opens its local listener; system routing remains off until you enable it. After certificate setup, you can also enable routing on launch with:
@@ -255,7 +256,7 @@ The app avoids overwriting proxy addresses changed by another app or by you. Pre
 | The certificate is trusted, but the browser shows the original response | Confirm **Mac proxy enabled**, the correct network service is selected, and the rule is enabled. Trust alone does not route traffic. |
 | No requests appear in Live traffic | Check Mac proxy routing, restart existing browser connections, and check whether the client requires explicit proxy configuration. |
 | A request appears but is not mocked | Check its method, full URL, query string, and rule priority. Exact matching includes the query string. |
-| Certificate authorization says “no user interaction was possible” | Use **Open Keychain Access…** and finish the SSL trust steps manually. An earlier attempt may already have imported the certificate into **System** without granting trust. |
+| Certificate authorization says “no user interaction was possible” | Expand **Keychain fallback** and finish the SSL trust steps manually. An earlier attempt may already have imported the certificate into **System** without granting trust. |
 | HTTPS produces certificate errors | Check SSL trust, restart the client, and check whether it uses a separate CA store or certificate pinning. |
 | Localhost traffic is missing | Existing macOS/client bypass lists remain in effect. Explicitly configure the client; the curl example disables bypasses with `--noproxy ''`. |
 | The web UI reports an expired session | Open the private URL printed by the currently running server. Each launch creates a new session token. |
@@ -278,7 +279,7 @@ Request history stays in memory and retains the latest **300 requests**. Text pr
 
 The UI uses a private launch token, an HttpOnly/SameSite cookie, and origin checks for writes. Captured HTML is displayed as text. Traffic passing through the proxy can contain credentials and other private data, so use it for your own development traffic and do not share your CA private key.
 
-The `.data`, `node_modules`, `build`, and `dist` directories are git-ignored. To remove certificate trust, delete **Pocket Proxy Personal CA** from its **System** or **login** keychain in Keychain Access. Stop the app and remove that trust before deleting its CA data.
+The `.data`, `node_modules`, `build`, and `dist` directories are git-ignored. To remove certificate trust, delete the certificate identified by **Certificate details** in the app from its **System** or **login** keychain in Keychain Access. Stop the app and remove that trust before deleting its CA data.
 
 ## Limitations
 
@@ -307,7 +308,7 @@ src/
   lock.js          Cross-process restoration lock
   watchdog.js      Crash-recovery helper
 public/            Web interface
-native/            Swift WebView window
+native/            Swift WebView window and certificate setup helper
 scripts/           Native build script
 test/              Automated tests
 ```
@@ -326,7 +327,7 @@ npm run build:release
 npm run test:release
 ```
 
-The release build uses esbuild to bundle and minify the backend and its dependencies. It copies the web UI, retains third-party license notices, compiles the native launcher, and creates a compressed DMG with an Applications shortcut. It leaves development dependencies intact. Runtime certificates, rules, Git data, compiler caches, and Node itself are excluded.
+The release build uses esbuild to bundle and minify the backend and its dependencies. It copies the web UI, retains third-party license notices, compiles the native launcher and certificate helper, and creates a compressed DMG with an Applications shortcut. It leaves development dependencies intact. Runtime certificates, rules, Git data, compiler caches, and Node itself are excluded.
 
 Output files:
 
@@ -335,7 +336,7 @@ Output files:
 - `dist/release-size.json` — exact installed and download sizes.
 - `dist/bundle-analysis.json` — bundled module inventory for size analysis.
 
-The build fails if the application payload reaches **15 MB** (15,000,000 bytes). The initial lean build is approximately **6 MB installed** and **2.2 MB as a DMG**, compared with roughly **42 MB** of unbundled production dependencies. Node remains an external prerequisite in both comparisons. Use the generated size report for the exact current numbers.
+The build fails if the application payload reaches **15 MB** (15,000,000 bytes). The initial lean build is approximately **6.1 MB installed** and **2.2 MB as a DMG**, compared with roughly **42 MB** of unbundled production dependencies. Node remains an external prerequisite in both comparisons. Use the generated size report for the exact current numbers.
 
 Release tests copy the app outside the repository before running its backend. They check HTTPS mocks, forwarding, compressed responses, saved rules/certificates, and pause/restart without accessing this project's `node_modules`. They also check native Node discovery with a Finder-like PATH and missing/unsupported runtime errors. No real system proxy settings or certificate trust are changed by those tests.
 

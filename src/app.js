@@ -7,6 +7,7 @@ import { ensureCA, readJson, writeJson } from './storage.js';
 import { validateRule } from './rules.js';
 import { ProxyEngine } from './proxy.js';
 import { MacProxy } from './macos.js';
+import { certificateIdentity, HttpsSetup } from './certificate.js';
 const publicDir = fileURLToPath(new URL('../public/', import.meta.url));
 const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
 function same(a, b) { return typeof a === 'string' && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b)); }
@@ -29,10 +30,12 @@ export async function createApp({ dataDir, uiPort = 9077, proxyPort = 8899, mac 
     for (const client of clients) { if (!client.write(data)) { client.destroy(); clients.delete(client); } }
   }
   const engine = new ProxyEngine({ ca, rules, port: proxyPort, publish });
+  const identity = await certificateIdentity(ca.certPath);
+  const setup = new HttpsSetup({ certPath: ca.certPath, engine });
   async function status() {
     let journal = null, services = [], systemError = '';
     try { journal = await mac.journal(); services = await mac.services(); } catch (error) { systemError = error.message; }
-    return { running: engine.running, proxyPort: engine.port, uiPort: server.address().port, systemProxy: !!journal, selectedServices: [...new Set(journal?.entries.map(e => e.service) || [])], services, systemError, certPath: ca.certPath, requestCount: engine.records.size, ruleCount: engine.rules.filter(r => r.enabled).length };
+    return { running: engine.running, proxyPort: engine.port, uiPort: server.address().port, systemProxy: !!journal, selectedServices: [...new Set(journal?.entries.map(e => e.service) || [])], services, systemError, certPath: ca.certPath, certificate: identity, httpsSetup: setup.state, requestCount: engine.records.size, ruleCount: engine.rules.filter(r => r.enabled).length };
   }
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -93,6 +96,8 @@ export async function createApp({ dataDir, uiPort = 9077, proxyPort = 8899, mac 
               else await mac.restore();
               return status();
             case '/api/certificate/trust': return await mac.trustCertificate(ca.certPath);
+            case '/api/setup/verify': return await setup.verify();
+            case '/api/setup/https': return await setup.setup();
             case '/api/requests/clear': engine.clear(); return { ok: true };
             default: throw new Error('Unknown action.');
           }

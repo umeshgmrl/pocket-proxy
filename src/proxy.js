@@ -1,6 +1,7 @@
 import { getLocal } from 'mockttp';
 import { gunzipSync, inflateSync, brotliDecompressSync } from 'node:zlib';
 import { matches } from './rules.js';
+import { randomBytes } from 'node:crypto';
 
 const PREVIEW_LIMIT = 64 * 1024;
 function preview(body, headers = {}) {
@@ -38,6 +39,8 @@ export class ProxyEngine {
   constructor({ ca, port = 8899, rules = [], publish = () => {}, adminPort = 9077 }) {
     this.ca = ca; this.port = port; this.rules = rules; this.publish = publish; this.adminPort = adminPort;
     this.records = new Map(); this.running = false; this.sequence = 0;
+    this.probeToken = randomBytes(16).toString('hex');
+    this.probeUrl = `https://pocket-proxy-check.invalid/${this.probeToken}`;
   }
   summaries() { return [...this.records.values()].reverse().map(({ requestBody, responseBody, requestHeaders, responseHeaders, ...rest }) => rest); }
   update(id, patch) {
@@ -48,6 +51,7 @@ export class ProxyEngine {
   }
   clear() { this.records.clear(); this.publish('traffic', { sequence: ++this.sequence }); }
   begin(req) {
+    if (req.url === this.probeUrl) return;
     if (this.records.has(req.id)) return;
     this.records.set(req.id, { id: req.id, url: req.url, method: req.method, timestamp: Date.now(), status: null, outcome: 'pending', mocked: false, requestHeaders: req.headers });
     while (this.records.size > 300) this.records.delete(this.records.keys().next().value);
@@ -65,11 +69,16 @@ export class ProxyEngine {
       this.update(res.id, { status: res.statusCode, outcome: 'complete', duration: Date.now() - start, responseHeaders: res.headers, responseBody: preview(res.body, res.headers) });
     });
     await this.mock.on('abort', req => this.update(req.id, { outcome: 'error', error: req.error?.message || 'Connection aborted' }));
-    await this.mock.on('tls-client-error', event => this.publish('notice', { message: `HTTPS connection failed${event.hostname ? ` for ${event.hostname}` : ''}. Check certificate trust or certificate pinning.` }));
+    await this.mock.on('tls-client-error', event => {
+      const hostname = event.tlsMetadata?.sniHostname;
+      if (hostname === 'pocket-proxy-check.invalid') return;
+      this.publish('notice', { message: `An HTTPS connection${hostname ? ` to ${hostname}` : ''} failed. Use Verify HTTPS in Connection setup; individual apps may also reject interception.` });
+    });
     try {
       await this.mock.start(this.port);
       this.port = this.mock.port;
       await this.mock.forAnyRequest().thenPassThrough({ beforeRequest: async req => {
+        if (req.url === this.probeUrl) return { response: { statusCode: 200, headers: { 'content-type': 'text/plain', 'cache-control': 'no-store' }, body: this.probeToken } };
         // Mockttp emits lifecycle events asynchronously; the callback can arrive first.
         this.begin(req);
         const url = new URL(req.url);

@@ -52,6 +52,7 @@ try {
   await copyFile(path.join(root, 'native/WebView.swift'), path.join(work, 'main.swift'));
   const target = process.arch === 'arm64' ? 'arm64-apple-macosx13.0' : 'x86_64-apple-macosx13.0';
   await exec('/usr/bin/swiftc', ['-O', '-target', target, '-D', 'RELEASE', '-module-cache-path', path.join(work, 'cache'), path.join(work, 'main.swift'), path.join(root, 'native/NodeRuntime.swift'), '-o', path.join(app, 'Contents/MacOS/PocketProxy'), '-framework', 'Cocoa', '-framework', 'WebKit'], { timeout: 180000 });
+  await exec('/usr/bin/swiftc', ['-O', '-target', target, '-module-cache-path', path.join(work, 'cache'), path.join(root, 'native/CertificateSetup.swift'), '-o', path.join(app, 'Contents/MacOS/CertificateSetup'), '-framework', 'Cocoa', '-framework', 'Security'], { timeout: 180000 });
 } finally { await rm(work, { recursive: true, force: true }); }
 await writeFile(path.join(app, 'Contents/Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -67,6 +68,7 @@ await writeFile(path.join(app, 'Contents/Info.plist'), `<?xml version="1.0" enco
 <key>NSHighResolutionCapable</key><true/>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>\n`);
+await exec('/usr/bin/codesign', ['--force', '--sign', '-', path.join(app, 'Contents/MacOS/CertificateSetup')]);
 await exec('/usr/bin/codesign', ['--force', '--sign', '-', app]);
 async function bytes(dir) {
   let total = 0;
