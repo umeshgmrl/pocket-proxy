@@ -72,7 +72,7 @@ export class ProxyEngine {
     await this.mock.on('tls-client-error', event => {
       const hostname = event.tlsMetadata?.sniHostname;
       if (hostname === 'pocket-proxy-check.invalid') return;
-      this.publish('notice', { message: `An HTTPS connection${hostname ? ` to ${hostname}` : ''} failed. Use Verify HTTPS in Connection setup; individual apps may also reject interception.` });
+      this.publish('notice', { kind: 'tls-client-error', hostname: hostname || null, message: `An HTTPS connection${hostname ? ` to ${hostname}` : ''} failed during its TLS handshake.` });
     });
     try {
       await this.mock.start(this.port);

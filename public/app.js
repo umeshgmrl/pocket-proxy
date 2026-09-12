@@ -6,7 +6,23 @@ const pageCopy = {
   rules: ['Mock rules', 'Build the response you need, without touching your backend.'],
   setup: ['Connection setup', 'A local proxy. A personal certificate. You’re in control.']
 };
-function notice(message) { $('notice-text').textContent = message; $('notice').hidden = false; }
+let activeTlsNotice = null;
+const seenTlsHosts = new Set();
+function tlsNoticeMessage(event) {
+  return `${event.message} ${state?.httpsSetup?.phase === 'ready'
+    ? 'macOS HTTPS trust is verified. This client may use its own certificate checks, or the connection may have been interrupted. Other requests can continue.'
+    : 'Use Verify HTTPS in Connection setup to check macOS trust. Some clients also use their own certificate checks.'}`;
+}
+function receiveNotice(event) {
+  if (event.kind !== 'tls-client-error') return notice(event.message);
+  const host = event.hostname || '(unknown)';
+  if (seenTlsHosts.has(host)) return;
+  if (seenTlsHosts.size >= 100) seenTlsHosts.delete(seenTlsHosts.values().next().value);
+  seenTlsHosts.add(host);
+  notice(tlsNoticeMessage(event));
+  activeTlsNotice = event;
+}
+function notice(message) { activeTlsNotice = null; $('notice-text').textContent = message; $('notice').hidden = false; }
 async function api(url, data) {
   const res = await fetch(`/api/${url}`, data === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pocket-Proxy': '1' }, body: JSON.stringify(data) });
   const result = await res.json();
@@ -28,6 +44,7 @@ function page(name) {
 }
 function el(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function renderState() {
+  if (activeTlsNotice) $('notice-text').textContent = tlsNoticeMessage(activeTlsNotice);
   $('capture-state').replaceChildren(el('i'), document.createTextNode(state.running ? 'Capturing' : 'Paused'));
   $('capture-state').classList.toggle('on', state.running);
   $('capture-toggle').textContent = state.running ? 'Pause capture' : 'Start capture';
@@ -192,7 +209,7 @@ async function init() {
   events = new EventSource('/api/events');
   events.addEventListener('traffic', () => { if (!trafficTimer) trafficTimer = setTimeout(() => { trafficTimer = null; refreshTraffic().catch(error => notice(error.message)); }, 150); });
   events.addEventListener('state', () => refreshState().catch(error => notice(error.message)));
-  events.addEventListener('notice', event => notice(JSON.parse(event.data).message));
+  events.addEventListener('notice', event => receiveNotice(JSON.parse(event.data)));
   events.onerror = () => { $('capture-state').replaceChildren(el('i'), document.createTextNode('Reconnecting')); $('capture-state').classList.remove('on'); };
   events.onopen = () => { refreshState().catch(error => notice(error.message)); refreshTraffic().catch(error => notice(error.message)); };
 }
