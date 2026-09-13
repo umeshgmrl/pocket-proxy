@@ -2,6 +2,8 @@
 
 A small, local HTTP/HTTPS interceptor and API mocking app for macOS. Inspect requests, mock responses, and simulate delays in a native WebView—no account, cloud service, or subscription.
 
+<img width="1282" height="850" alt="Screenshot 2026-09-13 at 7 04 56 PM" src="https://github.com/user-attachments/assets/0406c46e-846e-4ec5-87e8-653598b28f6d" />
+
 ## Download
 
 **[Download Pocket Proxy for Apple Silicon — DMG, ~2.2 MB](https://github.com/umeshgmrl/pocket-proxy/releases/download/v0.1.0-lean.2/Pocket-Proxy-0.1.0-arm64.dmg)** · [Release notes](https://github.com/umeshgmrl/pocket-proxy/releases/tag/v0.1.0-lean.2)
